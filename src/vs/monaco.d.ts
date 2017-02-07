@@ -74,7 +74,12 @@ declare module monaco {
         public done(success?: (value: V) => void, error?: (err: any) => any, progress?: ProgressCallback): void;
         public cancel(): void;
 
+        public static as(value: null): Promise<null>;
+        public static as(value: undefined): Promise<undefined>;
+        public static as<ValueType>(value: Promise<ValueType>): Promise<ValueType>;
+        public static as<ValueType>(value: Thenable<ValueType>): Thenable<ValueType>;
         public static as<ValueType>(value: ValueType): Promise<ValueType>;
+
         public static is(value: any): value is Thenable<any>;
         public static timeout(delay: number): Promise<void>;
         public static join<ValueType>(promises: Promise<ValueType>[]): Promise<ValueType[]>;
@@ -1211,6 +1216,11 @@ declare module monaco.editor {
          */
         disableTranslate3d?: boolean;
         /**
+         * Disable the optimizations for monospace fonts.
+         * Defaults to false.
+         */
+        disableMonospaceOptimizations?: boolean;
+        /**
          * Should the cursor be hidden in the overview ruler.
          * Defaults to false.
          */
@@ -1474,6 +1484,7 @@ declare module monaco.editor {
         readonly _internalEditorViewOptionsBrand: void;
         readonly theme: string;
         readonly canUseTranslate3d: boolean;
+        readonly disableMonospaceOptimizations: boolean;
         readonly experimentalScreenReader: boolean;
         readonly rulers: number[];
         readonly ariaLabel: string;
@@ -1503,6 +1514,7 @@ declare module monaco.editor {
     export interface IViewConfigurationChangedEvent {
         readonly theme: boolean;
         readonly canUseTranslate3d: boolean;
+        readonly disableMonospaceOptimizations: boolean;
         readonly experimentalScreenReader: boolean;
         readonly rulers: boolean;
         readonly ariaLabel: boolean;
@@ -2796,9 +2808,17 @@ declare module monaco.editor {
          */
         label: string;
         /**
+         * Precondition rule.
+         */
+        precondition?: string;
+        /**
          * An array of keybindings for the action.
          */
         keybindings?: number[];
+        /**
+         * The keybinding rule (condition on top of precondition).
+         */
+        keybindingContext?: string;
         /**
          * Control if the action should show up in the context menu and where.
          * The context menu of the editor has these default:
@@ -2813,10 +2833,6 @@ declare module monaco.editor {
          * Control the order in the context menu group.
          */
         contextMenuOrder?: number;
-        /**
-         * The keybinding rule.
-         */
-        keybindingContext?: string;
         /**
          * Method that will be executed when the action is triggered.
          * @param editor The editor instance is passed in as a convinience
@@ -3937,9 +3953,14 @@ declare module monaco.languages {
     export function registerDefinitionProvider(languageId: string, provider: DefinitionProvider): IDisposable;
 
     /**
-     * Register a type implementation provider (used by e.g. go to implementation).
+     * Register a implementation provider (used by e.g. go to implementation).
      */
     export function registerImplementationProvider(languageId: string, provider: ImplementationProvider): IDisposable;
+
+    /**
+     * Register a type definition provider (used by e.g. go to type definition).
+     */
+    export function registerTypeDefinitionProvider(languageId: string, provider: TypeDefinitionProvider): IDisposable;
 
     /**
      * Register a code lens provider (used by e.g. inline code lenses).
@@ -4554,7 +4575,7 @@ declare module monaco.languages {
     }
 
     /**
-     * The type definition provider interface defines the contract between extensions and
+     * The implementation provider interface defines the contract between extensions and
      * the go to implementation feature.
      */
     export interface ImplementationProvider {
@@ -4562,6 +4583,17 @@ declare module monaco.languages {
          * Provide the implementation of the symbol at the given position and document.
          */
         provideImplementation(model: editor.IReadOnlyModel, position: Position, token: CancellationToken): Definition | Thenable<Definition>;
+    }
+
+    /**
+     * The type definition provider interface defines the contract between extensions and
+     * the go to type definition feature.
+     */
+    export interface TypeDefinitionProvider {
+        /**
+         * Provide the type definition of the symbol at the given position and document.
+         */
+        provideTypeDefinition(model: editor.IReadOnlyModel, position: Position, token: CancellationToken): Definition | Thenable<Definition>;
     }
 
     /**

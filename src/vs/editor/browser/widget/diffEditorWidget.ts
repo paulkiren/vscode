@@ -1894,7 +1894,7 @@ class InlineViewZonesComputer extends ViewZonesComputer {
 		let actualDecorations = Decoration.filter(decorations, lineNumber, 1, lineContent.length + 1);
 
 		let r = renderViewLine(new RenderLineInput(
-			config.fontInfo.isMonospace,
+			(config.fontInfo.isMonospace && !config.viewInfo.disableMonospaceOptimizations),
 			lineContent,
 			originalModel.mightContainRTL(),
 			0,
@@ -1916,7 +1916,7 @@ class InlineViewZonesComputer extends ViewZonesComputer {
 		myResult.push('" style="top:');
 		myResult.push(String(count * config.lineHeight));
 		myResult.push('px;width:1000000px;">');
-		myResult = myResult.concat(r.output);
+		myResult = myResult.concat(r.html);
 		myResult.push('</div>');
 
 		return myResult;

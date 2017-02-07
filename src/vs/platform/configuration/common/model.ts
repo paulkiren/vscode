@@ -88,21 +88,19 @@ interface Overrides<T> extends IOverrides<T> {
 
 export class ConfigModel<T> implements IConfigModel<T> {
 
-	protected _contents: T;
+	protected _contents: T = <T>{};
 	protected _overrides: IOverrides<T>[] = [];
+	protected _keys: string[] = [];
+	protected _parseErrors: any[] = [];
 
-	private _raw: any = {};
-	private _unfilteredRaw: any = {};
-	private _parseErrors: any[] = [];
-
-	constructor(content: string, private name: string = '') {
+	constructor(content: string = '', private name: string = '') {
 		if (content) {
 			this.update(content);
 		}
 	}
 
 	public get contents(): T {
-		return this._contents || <T>{};
+		return this._contents;
 	}
 
 	public get overrides(): IOverrides<T>[] {
@@ -110,15 +108,7 @@ export class ConfigModel<T> implements IConfigModel<T> {
 	}
 
 	public get keys(): string[] {
-		return Object.keys(this._raw);
-	}
-
-	public get raw(): T {
-		return this._raw;
-	}
-
-	public get unfilteredRaw(): T {
-		return this._unfilteredRaw;
+		return this._keys;
 	}
 
 	public get errors(): any[] {
@@ -133,21 +123,21 @@ export class ConfigModel<T> implements IConfigModel<T> {
 	}
 
 	protected doMerge(source: ConfigModel<T>, target: IConfigModel<T>, overwrite: boolean = true) {
-		source._contents = objects.clone(this.contents);
-		merge(source.contents, target.contents, overwrite);
-		const overrides = objects.clone(target.overrides);
-		for (const override of source.overrides) {
-			if (overrides.every(o => !arrays.equals(o.identifiers, override.identifiers))) {
+		merge(source.contents, objects.clone(target.contents), overwrite);
+		const overrides = objects.clone(source.overrides);
+		for (const override of target.overrides) {
+			const [sourceOverride] = overrides.filter(o => arrays.equals(o.identifiers, override.identifiers));
+			if (sourceOverride) {
+				merge(sourceOverride.contents, override.contents, overwrite);
+			} else {
 				overrides.push(override);
 			}
 		}
 		source._overrides = overrides;
 	}
 
-	public config<V>(section: string): ConfigModel<V> {
-		const result = new ConfigModel<V>(null);
-		result._contents = objects.clone(this.contents[section]);
-		return result;
+	public getContentsFor<V>(section: string): V {
+		return objects.clone(this.contents[section]);
 	}
 
 	public configWithOverrides<V>(identifier: string): ConfigModel<V> {
@@ -165,6 +155,7 @@ export class ConfigModel<T> implements IConfigModel<T> {
 	}
 
 	public update(content: string): void {
+		let parsed: T = <T>{};
 		let overrides: Overrides<T>[] = [];
 		let currentProperty: string = null;
 		let currentParent: any = [];
@@ -219,17 +210,16 @@ export class ConfigModel<T> implements IConfigModel<T> {
 				parseErrors.push({ error: error });
 			}
 		};
-		try {
-			json.visit(content, visitor);
-			this._raw = currentParent[0];
-		} catch (e) {
-			console.error(`Error while parsing settings file ${this.name}: ${e}`);
-			this._raw = <T>{};
-			this._parseErrors = [e];
+		if (content) {
+			try {
+				json.visit(content, visitor);
+				parsed = currentParent[0] || {};
+			} catch (e) {
+				console.error(`Error while parsing settings file ${this.name}: ${e}`);
+				this._parseErrors = [e];
+			}
 		}
-		this._unfilteredRaw = this._raw;
-		this._raw = this.filterRaw(this._unfilteredRaw);
-		this._contents = toValuesTree(this._raw, message => console.error(`Conflict in settings file ${this.name}: ${message}`));
+		this.processRaw(parsed);
 
 		const configurationProperties = Registry.as<IConfigurationRegistry>(Extensions.Configuration).getConfigurationProperties();
 		this._overrides = overrides.map<IOverrides<T>>(override => {
@@ -247,38 +237,26 @@ export class ConfigModel<T> implements IConfigModel<T> {
 		});
 	}
 
-	/*
-	 * If filterRaw is not a no-op, the returned object needs to be a copy.
-	 * The input may not be modified in place. The default implementation
-	 * is a no op.
-	 */
-	protected filterRaw(raw: any): any {
-		return raw;
-	}
-
-	public refilter(): void {
-		if (this._unfilteredRaw) {
-			this._raw = this.filterRaw(this._unfilteredRaw);
-			this._contents = toValuesTree(this._raw, message => console.error(`Conflict in settings file ${this.name}: ${message}`));
-		}
+	protected processRaw(raw: T): void {
+		this._contents = toValuesTree(raw, message => console.error(`Conflict in settings file ${this.name}: ${message}`));
+		this._keys = Object.keys(raw);
 	}
 }
 
 export class DefaultConfigModel<T> extends ConfigModel<T> {
+
 	constructor() {
 		super(null);
-	}
-
-	protected get _contents(): T {
-		return getDefaultValues(); // defaults coming from contributions to registries
-	}
-
-	protected set _contents(arg: T) {
-		//no op
+		this.update();
 	}
 
 	public get keys(): string[] {
-		return getConfigurationKeys();
+		return this._keys;
+	}
+
+	public update(): void {
+		this._contents = getDefaultValues(); // defaults coming from contributions to registries
+		this._keys = getConfigurationKeys();
 	}
 }
 

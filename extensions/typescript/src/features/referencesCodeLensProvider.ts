@@ -5,38 +5,45 @@
 
 'use strict';
 
-import { CodeLensProvider, CodeLens, CancellationToken, TextDocument, Range, Uri, Location, Position, workspace, WorkspaceConfiguration } from 'vscode';
+import { CodeLensProvider, CodeLens, CancellationToken, TextDocument, Range, Uri, Location, Position, workspace, EventEmitter, Event } from 'vscode';
 import * as Proto from '../protocol';
 import * as PConst from '../protocol.const';
 
 import { ITypescriptServiceClient } from '../typescriptService';
 
 import * as nls from 'vscode-nls';
-let localize = nls.loadMessageBundle();
+const localize = nls.loadMessageBundle();
 
 
 class ReferencesCodeLens extends CodeLens {
-	public document: Uri;
-	public file: string;
-
-	constructor(document: Uri, file: string, range: Range) {
+	constructor(
+		public document: Uri,
+		public file: string,
+		range: Range
+	) {
 		super(range);
-		this.document = document;
-		this.file = file;
 	}
 }
 
 export default class TypeScriptReferencesCodeLensProvider implements CodeLensProvider {
-	private client: ITypescriptServiceClient;
 	private enabled = false;
 
-	constructor(client: ITypescriptServiceClient) {
-		this.client = client;
+	private onDidChangeCodeLensesEmitter = new EventEmitter<void>();
+
+	public constructor(
+		private client: ITypescriptServiceClient) { }
+
+	public get onDidChangeCodeLenses(): Event<void> {
+		return this.onDidChangeCodeLensesEmitter.event;
 	}
 
-	public updateConfiguration(config: WorkspaceConfiguration): void {
-		let typeScriptConfig = workspace.getConfiguration('typescript');
+	public updateConfiguration(): void {
+		const typeScriptConfig = workspace.getConfiguration('typescript');
+		const wasEnabled = this.enabled;
 		this.enabled = typeScriptConfig.get('referencesCodeLens.enabled', false);
+		if (wasEnabled !== this.enabled) {
+			this.onDidChangeCodeLensesEmitter.fire();
+		}
 	}
 
 	provideCodeLenses(document: TextDocument, token: CancellationToken): Promise<CodeLens[]> {
@@ -44,17 +51,20 @@ export default class TypeScriptReferencesCodeLensProvider implements CodeLensPro
 			return Promise.resolve([]);
 		}
 
-		const filepath = this.client.asAbsolutePath(document.uri);
+		const filepath = this.client.normalizePath(document.uri);
 		if (!filepath) {
 			return Promise.resolve([]);
 		}
 		return this.client.execute('navtree', { file: filepath }, token).then(response => {
+			if (!response) {
+				return [];
+			}
 			const tree = response.body;
 			const referenceableSpans: Range[] = [];
 			if (tree && tree.childItems) {
 				tree.childItems.forEach(item => this.extractReferenceableSymbols(document, item, referenceableSpans));
 			}
-			return Promise.resolve(referenceableSpans.map(span => new ReferencesCodeLens(document.uri, filepath, span)));
+			return referenceableSpans.map(span => new ReferencesCodeLens(document.uri, filepath, span));
 		});
 	}
 
@@ -87,7 +97,7 @@ export default class TypeScriptReferencesCodeLensProvider implements CodeLensPro
 				};
 				return Promise.resolve(codeLens);
 			}
-			return Promise.reject(codeLens);
+			return Promise.reject<CodeLens>(codeLens);
 		}).catch(() => {
 			codeLens.command = {
 				title: localize('referenceErrorLabel', 'Could not determine references'),
@@ -139,10 +149,11 @@ export default class TypeScriptReferencesCodeLensProvider implements CodeLensPro
 				case PConst.Kind.enum:
 					const identifierMatch = new RegExp(`^(.*?(\\b|\\W))${item.text}\\b`, 'gm');
 					const match = identifierMatch.exec(text);
-					const start = match ? match.index + match[1].length : 0;
+					const prefixLength = match ? match.index + match[1].length : 0;
+					const startOffset = document.offsetAt(new Position(range.start.line, range.start.character)) + prefixLength;
 					results.push(new Range(
-						new Position(range.start.line, range.start.character + start),
-						new Position(range.start.line, range.start.character + start + item.text.length)));
+						document.positionAt(startOffset),
+						document.positionAt(startOffset + item.text.length)));
 					break;
 			}
 		}

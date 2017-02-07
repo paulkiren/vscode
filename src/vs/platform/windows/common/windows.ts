@@ -24,8 +24,6 @@ export interface IWindowsService {
 	reloadWindow(windowId: number): TPromise<void>;
 	openDevTools(windowId: number): TPromise<void>;
 	toggleDevTools(windowId: number): TPromise<void>;
-	// TODO@joao: rename, shouldn't this be closeWindow?
-	// @ben: no, this actually leaves the window open but changes it to have no workspace opened
 	closeFolder(windowId: number): TPromise<void>;
 	toggleFullScreen(windowId: number): TPromise<void>;
 	setRepresentedFilename(windowId: number, fileName: string): TPromise<void>;
@@ -84,6 +82,8 @@ export interface IWindowService {
 	unmaximizeWindow(): TPromise<void>;
 }
 
+export type MenuBarVisibility = 'default' | 'visible' | 'toggle' | 'hidden';
+
 export interface IWindowSettings {
 	openFilesInNewWindow: 'on' | 'off' | 'default';
 	openFoldersInNewWindow: 'on' | 'off' | 'default';
@@ -92,6 +92,6 @@ export interface IWindowSettings {
 	zoomLevel: number;
 	titleBarStyle: 'native' | 'custom';
 	autoDetectHighContrast: boolean;
-	menuBarVisibility: 'visible' | 'toggle' | 'hidden';
+	menuBarVisibility: MenuBarVisibility;
 	newWindowDimensions: 'default' | 'inherit' | 'maximized' | 'fullscreen';
 }

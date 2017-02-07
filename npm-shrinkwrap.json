@@ -1,6 +1,6 @@
 {
   "name": "code-oss-dev",
-  "version": "1.8.0",
+  "version": "1.10.0",
   "dependencies": {
     "agent-base": {
       "version": "1.0.2",
@@ -431,8 +431,8 @@
     },
     "xterm": {
       "version": "2.2.3",
-      "from": "git+https://github.com/Tyriar/xterm.js.git#vscode-release/1.9",
-      "resolved": "git+https://github.com/Tyriar/xterm.js.git#f30504b908ff9c9e1917add36353da66b176e08a"
+      "from": "Tyriar/xterm.js#vscode-release/1.10",
+      "resolved": "git+https://github.com/Tyriar/xterm.js.git#90cd66bf353b86ad52d7b650760d8d879dd1c7b8"
     },
     "yauzl": {
       "version": "2.3.1",

@@ -41,7 +41,7 @@ export class HtmlPreviewPart extends BaseEditor {
 	private _baseUrl: URI;
 
 	private _modelRef: IReference<ITextEditorModel>;
-	public get model(): IModel { return this._modelRef.object.textEditorModel; }
+	public get model(): IModel { return this._modelRef && this._modelRef.object.textEditorModel; }
 	private _modelChangeSubscription = EmptyDisposable;
 	private _themeChangeSubscription = EmptyDisposable;
 
@@ -180,6 +180,8 @@ export class HtmlPreviewPart extends BaseEditor {
 				this._modelChangeSubscription = this.model.onDidChangeContent(() => this.webview.contents = this.model.getLinesContent());
 				this.webview.baseUrl = resourceUri.toString(true);
 				this.webview.contents = this.model.getLinesContent();
+
+				return undefined;
 			});
 		});
 	}

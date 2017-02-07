@@ -61,7 +61,7 @@ import { IOutputService, IOutputChannelRegistry, Extensions as OutputExt, IOutpu
 
 import { ITerminalService } from 'vs/workbench/parts/terminal/common/terminal';
 
-import { ITaskSystem, ITaskSummary, ITaskExecuteResult, TaskExecuteKind, TaskError, TaskErrors, TaskConfiguration, TaskDescription, TaskSystemEvents } from 'vs/workbench/parts/tasks/common/taskSystem';
+import { ITaskSystem, ITaskSummary, ITaskExecuteResult, TaskExecuteKind, TaskError, TaskErrors, TaskRunnerConfiguration, TaskConfiguration, TaskDescription, TaskSystemEvents } from 'vs/workbench/parts/tasks/common/taskSystem';
 import { ITaskService, TaskServiceEvents } from 'vs/workbench/parts/tasks/common/taskService';
 import { templates as taskTemplates } from 'vs/workbench/parts/tasks/common/taskTemplates';
 
@@ -351,24 +351,27 @@ class TerminateAction extends AbstractTaskAction {
 		if (!this.canRun()) {
 			return TPromise.as(undefined);
 		}
-		if (this.taskService.inTerminal) {
+		if (this.taskService.inTerminal()) {
 			this.messageService.show(Severity.Info, {
 				message: nls.localize('TerminateAction.terminalSystem', 'The tasks are executed in the integrated terminal. Use the terminal to manage the tasks.'),
 				actions: [new ViewTerminalAction(this.terminalService), new CloseMessageAction()]
 			});
+			return undefined;
 		} else {
 			return this.taskService.isActive().then((active) => {
 				if (active) {
 					return this.taskService.terminate().then((response) => {
 						if (response.success) {
-							return;
+							return undefined;
 						} else if (response.code && response.code === TerminateResponseCode.ProcessNotFound) {
 							this.messageService.show(Severity.Error, nls.localize('TerminateAction.noProcess', 'The launched process doesn\'t exist anymore. If the task spawned background tasks exiting VS Code might result in orphaned processes.'));
+							return undefined;
 						} else {
 							return Promise.wrapError(nls.localize('TerminateAction.failed', 'Failed to terminate running task'));
 						}
 					});
 				}
+				return undefined;
 			});
 		}
 	}
@@ -677,19 +680,43 @@ class TaskService extends EventEmitter implements ITaskService {
 		this.extensionService = extensionService;
 		this.quickOpenService = quickOpenService;
 
-		this._inTerminal = false;
+		this._inTerminal = undefined;
 		this.taskSystemListeners = [];
 		this.clearTaskSystemPromise = false;
 		this.outputChannel = this.outputService.getChannel(TaskService.OutputChannelId);
 		this.configurationService.onDidUpdateConfiguration(() => {
-			this.emit(TaskServiceEvents.ConfigChanged);
-			if (this._taskSystem && this._taskSystem.isActiveSync()) {
-				this.clearTaskSystemPromise = true;
-			} else {
-				this._taskSystem = null;
-				this._taskSystemPromise = null;
+			// We don't have a task system yet. So nothing to do.
+			if (!this._taskSystemPromise && !this._taskSystem) {
+				return;
 			}
-			this.disposeTaskSystemListeners();
+			if (this._inTerminal !== void 0) {
+				let config = this.configurationService.getConfiguration<TaskConfiguration>('tasks');
+				if (this._inTerminal && this.isRunnerConfig(config) || !this._inTerminal && this.isTerminalConfig(config)) {
+					this.messageService.show(Severity.Info, nls.localize('TaskSystem.noHotSwap', 'Changing the task execution engine requires to restart VS Code. The change is ignored.'));
+				}
+			}
+			this.emit(TaskServiceEvents.ConfigChanged);
+			if (this._inTerminal) {
+				this.readConfiguration().then((config) => {
+					if (!config) {
+						return;
+					}
+					if (this._taskSystem) {
+						(this._taskSystem as TerminalTaskSystem).setConfiguration(config);
+					} else {
+						this._taskSystem = null;
+						this._taskSystemPromise = null;
+					}
+				});
+			} else {
+				if (this._taskSystem && this._taskSystem.isActiveSync()) {
+					this.clearTaskSystemPromise = true;
+				} else {
+					this._taskSystem = null;
+					this._taskSystemPromise = null;
+				}
+				this.disposeTaskSystemListeners();
+			}
 		});
 
 		lifecycleService.onWillShutdown(event => event.veto(this.beforeShutdown()));
@@ -697,6 +724,10 @@ class TaskService extends EventEmitter implements ITaskService {
 
 	public log(value: string): void {
 		this.outputChannel.append(value + '\n');
+	}
+
+	private showOutput(): void {
+		this.outputChannel.show(true);
 	}
 
 	private disposeTaskSystemListeners(): void {
@@ -811,6 +842,74 @@ class TaskService extends EventEmitter implements ITaskService {
 		return this._taskSystemPromise;
 	}
 
+	private readConfiguration(): TPromise<TaskRunnerConfiguration> {
+		let config = this.configurationService.getConfiguration<TaskConfiguration>('tasks');
+		let parseErrors: string[] = config ? (<any>config).$parseErrors : null;
+		if (parseErrors) {
+			let isAffected = false;
+			for (let i = 0; i < parseErrors.length; i++) {
+				if (/tasks\.json$/.test(parseErrors[i])) {
+					isAffected = true;
+					break;
+				}
+			}
+			if (isAffected) {
+				this.log(nls.localize('TaskSystem.invalidTaskJson', 'Error: The content of the tasks.json file has syntax errors. Please correct them before executing a task.\n'));
+				this.showOutput();
+				return TPromise.wrapError(undefined);
+			}
+		}
+		let configPromise: TPromise<TaskConfiguration>;
+		if (config) {
+			if (this.isRunnerConfig(config) && this.hasDetectorSupport(<FileConfig.ExternalTaskRunnerConfiguration>config)) {
+				let fileConfig = <FileConfig.ExternalTaskRunnerConfiguration>config;
+				configPromise = new ProcessRunnerDetector(this.fileService, this.contextService, this.configurationResolverService, fileConfig).detect(true).then((value) => {
+					this.printStderr(value.stderr);
+					let detectedConfig = value.config;
+					if (!detectedConfig) {
+						return config;
+					}
+					let result: FileConfig.ExternalTaskRunnerConfiguration = Objects.clone(fileConfig);
+					let configuredTasks: IStringDictionary<FileConfig.TaskDescription> = Object.create(null);
+					if (!result.tasks) {
+						if (detectedConfig.tasks) {
+							result.tasks = detectedConfig.tasks;
+						}
+					} else {
+						result.tasks.forEach(task => configuredTasks[task.taskName] = task);
+						detectedConfig.tasks.forEach((task) => {
+							if (!configuredTasks[task.taskName]) {
+								result.tasks.push(task);
+							}
+						});
+					}
+					return result;
+				});
+			} else {
+				configPromise = TPromise.as<TaskConfiguration>(config);
+			}
+		} else {
+			configPromise = new ProcessRunnerDetector(this.fileService, this.contextService, this.configurationResolverService).detect(true).then((value) => {
+				this.printStderr(value.stderr);
+				return value.config;
+			});
+		}
+		return configPromise.then((config) => {
+			if (!config) {
+				return undefined;
+			}
+			let parseResult = FileConfig.parse(<FileConfig.ExternalTaskRunnerConfiguration>config, this);
+			if (!parseResult.validationStatus.isOK()) {
+				this.showOutput();
+			}
+			if (parseResult.validationStatus.isFatal()) {
+				this.log(nls.localize('TaskSystem.configurationErrors', 'Error: the provided task configuration has validation errors and can\'t not be used. Please correct the errors first.'));
+				return undefined;
+			}
+			return parseResult.configuration;
+		});
+	}
+
 	private printStderr(stderr: string[]): boolean {
 		let result = true;
 		if (stderr && stderr.length > 0) {
@@ -832,7 +931,7 @@ class TaskService extends EventEmitter implements ITaskService {
 	}
 
 	public inTerminal(): boolean {
-		return this._inTerminal;
+		return this._inTerminal !== void 0 && this._inTerminal;
 	}
 
 	private hasDetectorSupport(config: FileConfig.ExternalTaskRunnerConfiguration): boolean {
@@ -1334,7 +1433,13 @@ let schema: IJSONSchema =
 					},
 					'isWatching': {
 						'type': 'boolean',
+						'deprecationMessage': nls.localize('JsonSchema.watching.deprecation', 'Deprecated. Use isBackground instead.'),
 						'description': nls.localize('JsonSchema.watching', 'Whether the executed task is kept alive and is watching the file system.'),
+						'default': true
+					},
+					'isBackground': {
+						'type': 'boolean',
+						'description': nls.localize('JsonSchema.background', 'Whether the executed task is kept alive and is running in the background.'),
 						'default': true
 					},
 					'promptOnClose': {
@@ -1482,8 +1587,8 @@ let schema: IJSONSchema =
 					},
 					'isWatching': {
 						'type': 'boolean',
-						'deprecationMessage': nls.localize('JsonSchema.tasks.watching', 'Deprecated. Use isBackground instead.'),
-						'description': nls.localize('JsonSchema.tasks.watching', 'Deprecated. Use isBackground instead.'),
+						'deprecationMessage': nls.localize('JsonSchema.tasks.watching.deprecation', 'Deprecated. Use isBackground instead.'),
+						'description': nls.localize('JsonSchema.tasks.watching', 'Whether the executed task is kept alive and is watching the file system.'),
 						'default': true
 					},
 					'isBackground': {

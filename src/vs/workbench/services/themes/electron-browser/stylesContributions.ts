@@ -63,9 +63,9 @@ class Theme {
 	constructor(private themeId: string, themeSettings: IThemeSetting[]) {
 		this.selector = `${getBaseThemeId(themeId)}.${getSyntaxThemeId(themeId)}`;
 		this.settings = themeSettings;
-		let settings = this.settings[0];
-		if (!settings.scope) {
-			this.globalSettings = settings.settings;
+		let globalSettings = this.settings.filter(s => !s.scope);
+		if (globalSettings.length > 0) {
+			this.globalSettings = globalSettings[0].settings;
 		}
 	}
 
@@ -304,7 +304,7 @@ class EditorWhiteSpaceStyleRules extends EditorStyleRules {
 	public getCssRules(theme: Theme, cssRules: string[]): void {
 		if (theme.getGlobalSettings().invisibles) {
 			let invisibles = new Color(theme.getGlobalSettings().invisibles);
-			cssRules.push(`.vs-whitespace { color: ${invisibles}; }`);
+			cssRules.push(`.vs-whitespace { color: ${invisibles} !important; }`);
 		}
 	}
 }

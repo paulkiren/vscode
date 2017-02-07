@@ -95,6 +95,15 @@
         }
       },
       {
+        "command": "git.commit",
+        "title": "%command.commit%",
+        "category": "Git",
+        "icon": {
+          "light": "resources/icons/light/check.svg",
+          "dark": "resources/icons/dark/check.svg"
+        }
+      },
+      {
         "command": "git.commitStaged",
         "title": "%command.commitStaged%",
         "category": "Git"
@@ -165,8 +174,21 @@
         "category": "Git"
       }
     ],
+    "keybindings": [
+      {
+        "command": "git.commitWithInput",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "inSCMInput"
+      }
+    ],
     "menus": {
       "scm/title": [
+        {
+          "command": "git.commit",
+          "group": "navigation",
+          "when": "scmProvider == git"
+        },
         {
           "command": "git.refresh",
           "group": "navigation",
@@ -347,11 +369,62 @@
           "group": "inline"
         }
       ]
+    },
+    "configuration": {
+      "title": "Git",
+      "properties": {
+        "git.path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "%config.path%",
+          "default": null,
+          "isExecutable": true
+        },
+        "git.autorefresh": {
+          "type": "boolean",
+          "description": "%config.autorefresh%",
+          "default": true
+        },
+        "git.autofetch": {
+          "type": "boolean",
+          "description": "%config.autofetch%",
+          "default": true
+        },
+        "git.enableLongCommitWarning": {
+          "type": "boolean",
+          "description": "%config.enableLongCommitWarning%",
+          "default": true
+        },
+        "git.countBadge": {
+          "type": "string",
+          "enum": [
+            "all",
+            "tracked",
+            "off"
+          ],
+          "description": "%config.countBadge%",
+          "default": "all"
+        },
+        "git.checkoutType": {
+          "type": "string",
+          "enum": [
+            "all",
+            "local",
+            "tags",
+            "remote"
+          ],
+          "description": "%config.checkoutType%",
+          "default": "all"
+        }
+      }
     }
   },
   "dependencies": {
-    "denodeify": "^1.2.1",
-    "lodash": "^4.17.2",
     "vscode-nls": "^2.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^7.0.4"
   }
 }

@@ -403,9 +403,8 @@ export class ExtensionsWorkbenchService implements IExtensionsWorkbenchService {
 	}
 
 	private fromGallery(gallery: IGalleryExtension): Extension {
-		const installedByGalleryId = index(this.installed, e => e.local.metadata ? e.local.metadata.id : '');
-		const id = gallery.id;
-		const installed = installedByGalleryId[id];
+		const installedByGalleryId = index(this.installed, e => e.identifier);
+		const installed = installedByGalleryId[`${gallery.publisher}.${gallery.name}`];
 
 		if (installed) {
 			// Loading the compatible version only there is an engine property
@@ -470,7 +469,7 @@ export class ExtensionsWorkbenchService implements IExtensionsWorkbenchService {
 
 	canInstall(extension: IExtension): boolean {
 		if (!(extension instanceof Extension)) {
-			return;
+			return false;
 		}
 
 		return !!(extension as Extension).gallery;
@@ -482,7 +481,7 @@ export class ExtensionsWorkbenchService implements IExtensionsWorkbenchService {
 		}
 
 		if (!(extension instanceof Extension)) {
-			return;
+			return undefined;
 		}
 
 		const ext = extension as Extension;
@@ -507,7 +506,7 @@ export class ExtensionsWorkbenchService implements IExtensionsWorkbenchService {
 
 	uninstall(extension: IExtension): TPromise<void> {
 		if (!(extension instanceof Extension)) {
-			return;
+			return undefined;
 		}
 
 		const ext = extension as Extension;
@@ -590,7 +589,7 @@ export class ExtensionsWorkbenchService implements IExtensionsWorkbenchService {
 			if (!enable && (workspace ? i.disabledForWorkspace : i.disabledGlobally)) {
 				return false;
 			}
-			return extension.dependencies.indexOf(i.identifier) !== -1;
+			return i.type === LocalExtensionType.User && extension.dependencies.indexOf(i.identifier) !== -1;
 		});
 		const depsOfDeps = [];
 		for (const dep of dependenciesToDisable) {
@@ -740,6 +739,7 @@ export class ExtensionsWorkbenchService implements IExtensionsWorkbenchService {
 						return this.setEnablement(keymap, false);
 					}));
 				}
+				return undefined;
 			}, error => TPromise.wrapError(canceled()));
 	}
 

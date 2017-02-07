@@ -131,11 +131,11 @@ export class DebugEditorContribution implements IDebugEditorContribution {
 					getActionsContext: () => breakpoint
 				});
 			} else {
-				const breakpoint = this.debugService.getModel().getBreakpoints()
-					.filter(bp => bp.uri.toString() === uri.toString() && bp.lineNumber === lineNumber).pop();
+				const breakpoints = this.debugService.getModel().getBreakpoints()
+					.filter(bp => bp.uri.toString() === uri.toString() && bp.lineNumber === lineNumber);
 
-				if (breakpoint) {
-					this.debugService.removeBreakpoints(breakpoint.getId());
+				if (breakpoints.length) {
+					breakpoints.forEach(bp => this.debugService.removeBreakpoints(bp.getId()));
 				} else if (canSetBreakpoints) {
 					this.debugService.addBreakpoints(uri, [{ lineNumber }]);
 				}
@@ -168,6 +168,9 @@ export class DebugEditorContribution implements IDebugEditorContribution {
 			}
 		}));
 		this.toDispose.push(this.editor.onKeyDown((e: IKeyboardEvent) => this.onKeyDown(e)));
+		this.toDispose.push(this.editor.onDidChangeModelContent(() => {
+			this.wordToLineNumbersMap = null;
+		}));
 		this.toDispose.push(this.editor.onDidChangeModel(() => {
 			const sf = this.debugService.getViewModel().focusedStackFrame;
 			const model = this.editor.getModel();
@@ -191,6 +194,7 @@ export class DebugEditorContribution implements IDebugEditorContribution {
 		if (sf && model && sf.source.uri.toString() === model.uri.toString()) {
 			return this.hoverWidget.showAt(range, focus);
 		}
+		return undefined;
 	}
 
 	private ensureBreakpointHintDecoration(showBreakpointHintAtLineNumber: number): void {
@@ -294,7 +298,7 @@ export class DebugEditorContribution implements IDebugEditorContribution {
 	private updateConfigurationWidgetVisibility(): void {
 		const model = this.editor.getModel();
 		if (model && LAUNCH_JSON_REGEX.test(model.uri.toString())) {
-			this.configurationWidget = this.instantiationService.createInstance(FloatingClickWidget, this.editor, nls.localize('addConfiguration', "Add Configuration"), null);
+			this.configurationWidget = this.instantiationService.createInstance(FloatingClickWidget, this.editor, nls.localize('addConfiguration', "Add Configuration..."), null);
 			this.configurationWidget.render();
 			this.toDispose.push(this.configurationWidget.onClick(() => this.addLaunchConfiguration().done(undefined, errors.onUnexpectedError)));
 		} else if (this.configurationWidget) {
@@ -324,8 +328,7 @@ export class DebugEditorContribution implements IDebugEditorContribution {
 			}
 		});
 		if (!configurationsPosition) {
-			this.commandService.executeCommand('editor.action.triggerSuggest');
-			return;
+			return this.commandService.executeCommand('editor.action.triggerSuggest');
 		}
 
 		const insertLineAfter = (lineNumber: number): TPromise<any> => {

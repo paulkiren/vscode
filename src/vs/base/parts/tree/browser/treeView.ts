@@ -791,7 +791,8 @@ export class TreeView extends HeightMap {
 	}
 
 	public get viewHeight() {
-		return this.scrollableElement.getHeight();
+		const scrollState = this.scrollableElement.getScrollState();
+		return scrollState.height;
 	}
 
 	public set viewHeight(viewHeight: number) {
@@ -802,7 +803,8 @@ export class TreeView extends HeightMap {
 	}
 
 	public get scrollTop(): number {
-		return this.scrollableElement.getScrollTop();
+		const scrollState = this.scrollableElement.getScrollState();
+		return scrollState.scrollTop;
 	}
 
 	public set scrollTop(scrollTop: number) {
@@ -1353,7 +1355,7 @@ export class TreeView extends HeightMap {
 
 		var viewItem = this.getItemAround(event.target);
 
-		if (!viewItem) {
+		if (!viewItem || (event.posx === 0 && event.posy === 0 && event.browserEvent.type === DOM.EventType.DRAG_LEAVE)) {
 			// dragging outside of tree
 
 			if (this.currentDropTarget) {
@@ -1594,6 +1596,7 @@ export class TreeView extends HeightMap {
 				return null;
 			}
 		} while (element = element.parentElement);
+		return undefined;
 	}
 
 	// Cleanup

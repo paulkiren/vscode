@@ -293,6 +293,11 @@ export interface IEditorOptions {
 	 */
 	disableTranslate3d?: boolean;
 	/**
+	 * Disable the optimizations for monospace fonts.
+	 * Defaults to false.
+	 */
+	disableMonospaceOptimizations?: boolean;
+	/**
 	 * Should the cursor be hidden in the overview ruler.
 	 * Defaults to false.
 	 */
@@ -663,6 +668,7 @@ export class InternalEditorViewOptions {
 
 	readonly theme: string;
 	readonly canUseTranslate3d: boolean;
+	readonly disableMonospaceOptimizations: boolean;
 	readonly experimentalScreenReader: boolean;
 	readonly rulers: number[];
 	readonly ariaLabel: string;
@@ -694,6 +700,7 @@ export class InternalEditorViewOptions {
 	constructor(source: {
 		theme: string;
 		canUseTranslate3d: boolean;
+		disableMonospaceOptimizations: boolean;
 		experimentalScreenReader: boolean;
 		rulers: number[];
 		ariaLabel: string;
@@ -721,6 +728,7 @@ export class InternalEditorViewOptions {
 	}) {
 		this.theme = String(source.theme);
 		this.canUseTranslate3d = Boolean(source.canUseTranslate3d);
+		this.disableMonospaceOptimizations = Boolean(source.disableMonospaceOptimizations);
 		this.experimentalScreenReader = Boolean(source.experimentalScreenReader);
 		this.rulers = InternalEditorViewOptions._toSortedIntegerArray(source.rulers);
 		this.ariaLabel = String(source.ariaLabel);
@@ -782,6 +790,7 @@ export class InternalEditorViewOptions {
 		return (
 			this.theme === other.theme
 			&& this.canUseTranslate3d === other.canUseTranslate3d
+			&& this.disableMonospaceOptimizations === other.disableMonospaceOptimizations
 			&& this.experimentalScreenReader === other.experimentalScreenReader
 			&& InternalEditorViewOptions._numberArraysEqual(this.rulers, other.rulers)
 			&& this.ariaLabel === other.ariaLabel
@@ -816,6 +825,7 @@ export class InternalEditorViewOptions {
 		return {
 			theme: this.theme !== newOpts.theme,
 			canUseTranslate3d: this.canUseTranslate3d !== newOpts.canUseTranslate3d,
+			disableMonospaceOptimizations: this.disableMonospaceOptimizations !== newOpts.disableMonospaceOptimizations,
 			experimentalScreenReader: this.experimentalScreenReader !== newOpts.experimentalScreenReader,
 			rulers: (!InternalEditorViewOptions._numberArraysEqual(this.rulers, newOpts.rulers)),
 			ariaLabel: this.ariaLabel !== newOpts.ariaLabel,
@@ -854,6 +864,7 @@ export class InternalEditorViewOptions {
 export interface IViewConfigurationChangedEvent {
 	readonly theme: boolean;
 	readonly canUseTranslate3d: boolean;
+	readonly disableMonospaceOptimizations: boolean;
 	readonly experimentalScreenReader: boolean;
 	readonly rulers: boolean;
 	readonly ariaLabel: boolean;
@@ -1613,7 +1624,7 @@ export interface ITextModel {
 	 * Replace the entire text buffer value contained in this model.
 	 * @internal
 	 */
-	setValueFromRawText(newValue: IRawText): void;
+	setValueFromRawText(newValue: ITextSource): void;
 
 	/**
 	 * Get the text stored in this model.
@@ -1638,7 +1649,7 @@ export interface ITextModel {
 	 * Check if the raw text stored in this model equals another raw text.
 	 * @internal
 	 */
-	equals(other: IRawText): boolean;
+	equals(other: ITextSource): boolean;
 
 	/**
 	 * Get the text in a certain range.
@@ -2349,7 +2360,7 @@ export interface IModelContentChangedEvent {
  * The raw text backing a model.
  * @internal
  */
-export interface IRawText {
+export interface ITextSource {
 	/**
 	 * The entire text length.
 	 */
@@ -2374,6 +2385,44 @@ export interface IRawText {
 	 * The text contains only characters inside the ASCII range 32-126 or \t \r \n
 	 */
 	readonly isBasicASCII: boolean;
+}
+
+/**
+ * The text source
+ * @internal
+ */
+export interface ITextSource2 {
+	/**
+	 * The entire text length.
+	 */
+	readonly length: number;
+	/**
+	 * The text split into lines.
+	 */
+	readonly lines: string[];
+	/**
+	 * The BOM (leading character sequence of the file).
+	 */
+	readonly BOM: string;
+	/**
+	 * The number of lines ending with '\r\n'
+	 */
+	readonly totalCRCount: number;
+	/**
+	 * The text contains Unicode characters classified as "R" or "AL".
+	 */
+	readonly containsRTL: boolean;
+	/**
+	 * The text contains only characters inside the ASCII range 32-126 or \t \r \n
+	 */
+	readonly isBasicASCII: boolean;
+}
+
+/**
+ * The raw text backing a model.
+ * @internal
+ */
+export interface IRawText extends ITextSource {
 	/**
 	 * The options associated with this text.
 	 */
@@ -3100,6 +3149,10 @@ export namespace ModeContextKeys {
 	/**
 	 * @internal
 	 */
+	export const hasTypeDefinitionProvider = new RawContextKey<boolean>('editorHasTypeDefinitionProvider', undefined);
+	/**
+	 * @internal
+	 */
 	export const hasHoverProvider = new RawContextKey<boolean>('editorHasHoverProvider', undefined);
 	/**
 	 * @internal
@@ -3348,9 +3401,17 @@ export interface IActionDescriptor {
 	 */
 	label: string;
 	/**
+	 * Precondition rule.
+	 */
+	precondition?: string;
+	/**
 	 * An array of keybindings for the action.
 	 */
 	keybindings?: number[];
+	/**
+	 * The keybinding rule (condition on top of precondition).
+	 */
+	keybindingContext?: string;
 	/**
 	 * Control if the action should show up in the context menu and where.
 	 * The context menu of the editor has these default:
@@ -3365,10 +3426,6 @@ export interface IActionDescriptor {
 	 * Control the order in the context menu group.
 	 */
 	contextMenuOrder?: number;
-	/**
-	 * The keybinding rule.
-	 */
-	keybindingContext?: string;
 	/**
 	 * Method that will be executed when the action is triggered.
 	 * @param editor The editor instance is passed in as a convinience
