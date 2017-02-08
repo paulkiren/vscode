@@ -23,6 +23,8 @@ import { CloseEditorAction, KeybindingsReferenceAction, OpenDocumentationUrlActi
 import { MessagesVisibleContext, NoEditorsVisibleContext, InZenModeContext } from 'vs/workbench/electron-browser/workbench';
 import { IJSONSchema } from 'vs/base/common/jsonSchema';
 import { IWindowsService } from 'vs/platform/windows/common/windows';
+import { IListService, ListFocusContext } from 'vs/platform/list/browser/listService';
+import { List } from 'vs/base/browser/ui/list/listWidget';
 
 const closeEditorOrWindowKeybindings: IKeybindings = { primary: KeyMod.CtrlCmd | KeyCode.KEY_W, win: { primary: KeyMod.CtrlCmd | KeyCode.F4, secondary: [KeyMod.CtrlCmd | KeyCode.KEY_W] } };
 
@@ -71,6 +73,52 @@ workbenchActionsRegistry.registerWorkbenchAction(new SyncActionDescriptor(Toggle
 if (isWindows || isLinux) {
 	workbenchActionsRegistry.registerWorkbenchAction(new SyncActionDescriptor(ToggleMenuBarAction, ToggleMenuBarAction.ID, ToggleMenuBarAction.LABEL), 'View: Toggle Menu Bar', viewCategory);
 }
+
+// --- List Commands
+
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: 'list.next',
+	weight: KeybindingsRegistry.WEIGHT.workbenchContrib(),
+	when: ListFocusContext,
+	primary: KeyCode.DownArrow,
+	mac: {
+		primary: KeyCode.DownArrow,
+		secondary: [KeyMod.WinCtrl | KeyCode.KEY_N]
+	},
+	handler: (accessor, arg2) => {
+		const listService = accessor.get(IListService);
+		const focussedList = listService.getFocused();
+		const count = typeof arg2 === 'number' ? arg2 : 1;
+
+		if (focussedList instanceof List) {
+			focussedList.focusNext(count);
+		} else {
+			focussedList.focusNext(count);
+		}
+	}
+});
+
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: 'list.previous',
+	weight: KeybindingsRegistry.WEIGHT.workbenchContrib(),
+	when: ListFocusContext,
+	primary: KeyCode.UpArrow,
+	mac: {
+		primary: KeyCode.UpArrow,
+		secondary: [KeyMod.WinCtrl | KeyCode.KEY_P]
+	},
+	handler: (accessor, arg2) => {
+		const listService = accessor.get(IListService);
+		const focussedList = listService.getFocused();
+		const count = typeof arg2 === 'number' ? arg2 : 1;
+
+		if (focussedList instanceof List) {
+			focussedList.focusPrevious(count);
+		} else {
+			focussedList.focusPrevious(count);
+		}
+	}
+});
 
 // close the window when the last editor is closed by reusing the same keybinding
 KeybindingsRegistry.registerCommandAndKeybindingRule({
