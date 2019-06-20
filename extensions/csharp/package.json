@@ -1,7 +1,10 @@
 {
   "name": "csharp",
-  "version": "0.1.0",
+	"displayName": "%displayName%",
+	"description": "%description%",
+  "version": "1.0.0",
   "publisher": "vscode",
+  "license": "MIT",
   "engines": {
     "vscode": "0.10.x"
   },
@@ -15,7 +18,8 @@
         "id": "csharp",
         "extensions": [
           ".cs",
-          ".csx"
+          ".csx",
+          ".cake"
         ],
         "aliases": [
           "C#",
@@ -30,6 +34,10 @@
         "scopeName": "source.cs",
         "path": "./syntaxes/csharp.tmLanguage.json"
       }
-    ]
+    ],
+		"snippets": [{
+			"language": "csharp",
+			"path": "./snippets/csharp.json"
+		}]
   }
 }

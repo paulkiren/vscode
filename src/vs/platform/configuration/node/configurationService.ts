@@ -2,123 +2,137 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
-import { TPromise } from 'vs/base/common/winjs.base';
-import * as objects from 'vs/base/common/objects';
-import { ConfigWatcher } from 'vs/base/node/config';
-import { Registry } from 'vs/platform/platform';
+import { Registry } from 'vs/platform/registry/common/platform';
 import { IConfigurationRegistry, Extensions } from 'vs/platform/configuration/common/configurationRegistry';
-import { IDisposable, toDisposable, Disposable } from 'vs/base/common/lifecycle';
-import { ConfigurationSource, IConfigurationService, IConfigurationServiceEvent, IConfigurationValue, getConfigurationValue, IConfigurationKeys, IConfigModel, IConfigurationOptions } from 'vs/platform/configuration/common/configuration';
-import { ConfigModel, DefaultConfigModel } from 'vs/platform/configuration/common/model';
-import Event, { Emitter } from 'vs/base/common/event';
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+import { IDisposable, Disposable } from 'vs/base/common/lifecycle';
+import { IConfigurationService, IConfigurationChangeEvent, IConfigurationOverrides, ConfigurationTarget, compare, isConfigurationOverrides, IConfigurationData } from 'vs/platform/configuration/common/configuration';
+import { DefaultConfigurationModel, Configuration, ConfigurationChangeEvent, ConfigurationModel, ConfigurationModelParser } from 'vs/platform/configuration/common/configurationModels';
+import { Event, Emitter } from 'vs/base/common/event';
+import { IWorkspaceFolder } from 'vs/platform/workspace/common/workspace';
+import { ConfigWatcher } from 'vs/base/node/config';
+import { onUnexpectedError } from 'vs/base/common/errors';
+import { URI } from 'vs/base/common/uri';
+import { Schemas } from 'vs/base/common/network';
 
-export interface ICache<T> {
-	defaults: IConfigModel<T>;
-	user: IConfigModel<T>;
-	consolidated: IConfigModel<any>;
-}
-
-export class ConfigurationService<T> extends Disposable implements IConfigurationService, IDisposable {
+export class ConfigurationService extends Disposable implements IConfigurationService, IDisposable {
 
 	_serviceBrand: any;
 
-	private cache: ICache<T>;
-	private userConfigModelWatcher: ConfigWatcher<IConfigModel<T>>;
+	private configuration: Configuration;
+	private userConfigModelWatcher: ConfigWatcher<ConfigurationModelParser> | undefined;
 
-	private _onDidUpdateConfiguration: Emitter<IConfigurationServiceEvent> = this._register(new Emitter<IConfigurationServiceEvent>());
-	public readonly onDidUpdateConfiguration: Event<IConfigurationServiceEvent> = this._onDidUpdateConfiguration.event;
+	private readonly _onDidChangeConfiguration: Emitter<IConfigurationChangeEvent> = this._register(new Emitter<IConfigurationChangeEvent>());
+	readonly onDidChangeConfiguration: Event<IConfigurationChangeEvent> = this._onDidChangeConfiguration.event;
 
 	constructor(
-		@IEnvironmentService environmentService: IEnvironmentService
+		private readonly settingsResource: URI
 	) {
 		super();
-
-		this.userConfigModelWatcher = new ConfigWatcher(environmentService.appSettingsPath, {
-			changeBufferDelay: 300, defaultConfig: new ConfigModel<T>(null, environmentService.appSettingsPath), parse: (content: string, parseErrors: any[]) => {
-				const userConfigModel = new ConfigModel<T>(content, environmentService.appSettingsPath);
-				parseErrors = [...userConfigModel.errors];
-				return userConfigModel;
-			}
-		});
-		this._register(toDisposable(() => this.userConfigModelWatcher.dispose()));
-
-		// Listeners
-		this._register(this.userConfigModelWatcher.onDidUpdateConfiguration(() => this.onConfigurationChange(ConfigurationSource.User)));
-		this._register(Registry.as<IConfigurationRegistry>(Extensions.Configuration).onDidRegisterConfiguration(() => this.onConfigurationChange(ConfigurationSource.Default)));
+		this.configuration = new Configuration(new DefaultConfigurationModel(), new ConfigurationModel());
+		this._register(Registry.as<IConfigurationRegistry>(Extensions.Configuration).onDidUpdateConfiguration(configurationProperties => this.onDidDefaultConfigurationChange(configurationProperties)));
 	}
 
-	private onConfigurationChange(source: ConfigurationSource): void {
-		this.cache = void 0; // reset our caches
-
-		const cache = this.getCache();
-
-		this._onDidUpdateConfiguration.fire({
-			config: this.getConfiguration(),
-			source,
-			sourceConfig: source === ConfigurationSource.Default ? cache.defaults.contents : cache.user.contents
-		});
-	}
-
-	public reloadConfiguration<C>(section?: string): TPromise<C> {
-		return new TPromise<C>(c => {
-			this.userConfigModelWatcher.reload(() => {
-				this.cache = void 0; // reset our caches
-
-				c(this.getConfiguration<C>(section));
-			});
-		});
-	}
-
-	public getConfiguration<C>(section?: string): C
-	public getConfiguration<C>(options?: IConfigurationOptions): C
-	public getConfiguration<C>(arg?: any): C {
-		const options = this.toOptions(arg);
-		const cache = this.getCache();
-		const configModel = options.overrideIdentifier ? cache.consolidated.configWithOverrides<C>(options.overrideIdentifier) : cache.consolidated;
-		return options.section ? configModel.getContentsFor<C>(options.section) : configModel.contents;
-	}
-
-	public lookup<C>(key: string, overrideIdentifier?: string): IConfigurationValue<C> {
-		const cache = this.getCache();
-
-		// make sure to clone the configuration so that the receiver does not tamper with the values
-		return {
-			default: objects.clone(getConfigurationValue<C>(overrideIdentifier ? cache.defaults.configWithOverrides(overrideIdentifier).contents : cache.defaults.contents, key)),
-			user: objects.clone(getConfigurationValue<C>(overrideIdentifier ? cache.user.configWithOverrides(overrideIdentifier).contents : cache.user.contents, key)),
-			value: objects.clone(getConfigurationValue<C>(overrideIdentifier ? cache.consolidated.configWithOverrides(overrideIdentifier).contents : cache.consolidated.contents, key))
-		};
-	}
-
-	public keys(): IConfigurationKeys {
-		const cache = this.getCache();
-
-		return {
-			default: cache.defaults.keys,
-			user: cache.user.keys
-		};
-	}
-
-	public getCache(): ICache<T> {
-		return this.cache || (this.cache = this.consolidateConfigurations());
-	}
-
-	private toOptions(arg: any): IConfigurationOptions {
-		if (typeof arg === 'string') {
-			return { section: arg };
+	initialize(): Promise<void> {
+		if (this.userConfigModelWatcher) {
+			this.userConfigModelWatcher.dispose();
 		}
-		if (typeof arg === 'object') {
-			return arg;
+
+		if (this.settingsResource.scheme !== Schemas.file) {
+			return Promise.resolve();
+		}
+		return new Promise<void>((c, e) => {
+			this.userConfigModelWatcher = this._register(new ConfigWatcher(this.settingsResource.fsPath, {
+				changeBufferDelay: 300, onError: error => onUnexpectedError(error), defaultConfig: new ConfigurationModelParser(this.settingsResource.fsPath), parse: (content: string, parseErrors: any[]) => {
+					const userConfigModelParser = new ConfigurationModelParser(this.settingsResource.fsPath);
+					userConfigModelParser.parseContent(content);
+					parseErrors = [...userConfigModelParser.errors];
+					return userConfigModelParser;
+				}, initCallback: () => {
+					this.configuration = new Configuration(new DefaultConfigurationModel(), this.userConfigModelWatcher!.getConfig().configurationModel);
+					this._register(this.userConfigModelWatcher!.onDidUpdateConfiguration(() => this.onDidChangeUserConfiguration(this.userConfigModelWatcher!.getConfig().configurationModel)));
+					c();
+				}
+			}));
+		});
+	}
+
+	getConfigurationData(): IConfigurationData {
+		return this.configuration.toData();
+	}
+
+	getValue<T>(): T;
+	getValue<T>(section: string): T;
+	getValue<T>(overrides: IConfigurationOverrides): T;
+	getValue<T>(section: string, overrides: IConfigurationOverrides): T;
+	getValue(arg1?: any, arg2?: any): any {
+		const section = typeof arg1 === 'string' ? arg1 : undefined;
+		const overrides = isConfigurationOverrides(arg1) ? arg1 : isConfigurationOverrides(arg2) ? arg2 : {};
+		return this.configuration.getValue(section, overrides, undefined);
+	}
+
+	updateValue(key: string, value: any): Promise<void>;
+	updateValue(key: string, value: any, overrides: IConfigurationOverrides): Promise<void>;
+	updateValue(key: string, value: any, target: ConfigurationTarget): Promise<void>;
+	updateValue(key: string, value: any, overrides: IConfigurationOverrides, target: ConfigurationTarget): Promise<void>;
+	updateValue(key: string, value: any, arg3?: any, arg4?: any): Promise<void> {
+		return Promise.reject(new Error('not supported'));
+	}
+
+	inspect<T>(key: string): {
+		default: T,
+		user: T,
+		workspace?: T,
+		workspaceFolder?: T
+		value: T
+	} {
+		return this.configuration.inspect<T>(key, {}, undefined);
+	}
+
+	keys(): {
+		default: string[];
+		user: string[];
+		workspace: string[];
+		workspaceFolder: string[];
+	} {
+		return this.configuration.keys(undefined);
+	}
+
+	reloadConfiguration(folder?: IWorkspaceFolder): Promise<void> {
+		if (this.userConfigModelWatcher) {
+			return new Promise<void>(c => this.userConfigModelWatcher!.reload(userConfigModelParser => {
+				this.onDidChangeUserConfiguration(userConfigModelParser.configurationModel);
+				c();
+			}));
+		}
+		return this.initialize();
+	}
+
+	private onDidChangeUserConfiguration(userConfigurationModel: ConfigurationModel): void {
+		const { added, updated, removed } = compare(this.configuration.localUserConfiguration, userConfigurationModel);
+		const changedKeys = [...added, ...updated, ...removed];
+		if (changedKeys.length) {
+			this.configuration.updateLocalUserConfiguration(userConfigurationModel);
+			this.trigger(changedKeys, ConfigurationTarget.USER);
+		}
+	}
+
+	private onDidDefaultConfigurationChange(keys: string[]): void {
+		this.configuration.updateDefaultConfiguration(new DefaultConfigurationModel());
+		this.trigger(keys, ConfigurationTarget.DEFAULT);
+	}
+
+	private trigger(keys: string[], source: ConfigurationTarget): void {
+		this._onDidChangeConfiguration.fire(new ConfigurationChangeEvent().change(keys).telemetryData(source, this.getTargetConfiguration(source)));
+	}
+
+	private getTargetConfiguration(target: ConfigurationTarget): any {
+		switch (target) {
+			case ConfigurationTarget.DEFAULT:
+				return this.configuration.defaults.contents;
+			case ConfigurationTarget.USER:
+				return this.configuration.localUserConfiguration.contents;
 		}
 		return {};
-	}
-
-	private consolidateConfigurations(): ICache<T> {
-		const defaults = new DefaultConfigModel<T>();
-		const user = this.userConfigModelWatcher.getConfig();
-		const consolidated = defaults.merge(user);
-		return { defaults, user, consolidated };
 	}
 }

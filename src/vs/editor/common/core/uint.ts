@@ -2,31 +2,30 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 export class Uint8Matrix {
 
-	private _data: Uint8Array;
-	private _rows: number;
-	private _cols: number;
+	private readonly _data: Uint8Array;
+	public readonly rows: number;
+	public readonly cols: number;
 
 	constructor(rows: number, cols: number, defaultValue: number) {
-		let data = new Uint8Array(rows * cols);
+		const data = new Uint8Array(rows * cols);
 		for (let i = 0, len = rows * cols; i < len; i++) {
 			data[i] = defaultValue;
 		}
 
 		this._data = data;
-		this._rows = rows;
-		this._cols = cols;
+		this.rows = rows;
+		this.cols = cols;
 	}
 
 	public get(row: number, col: number): number {
-		return this._data[row * this._cols + col];
+		return this._data[row * this.cols + col];
 	}
 
 	public set(row: number, col: number, value: number): void {
-		this._data[row * this._cols + col] = value;
+		this._data[row * this.cols + col] = value;
 	}
 }
 
@@ -86,8 +85,8 @@ export function toUint32(v: number): number {
 }
 
 export function toUint32Array(arr: number[]): Uint32Array {
-	let len = arr.length;
-	let r = new Uint32Array(len);
+	const len = arr.length;
+	const r = new Uint32Array(len);
 	for (let i = 0; i < len; i++) {
 		r[i] = toUint32(arr[i]);
 	}
